@@ -1,9 +1,8 @@
-# import regex as re
-# from nltk import word_tokenize
-# from nltk.corpus import stopwords
+import nltk
 import string
 import spacy
 import pandas as pd
+import re
 import numpy as np
 from sklearn.manifold import TSNE
 pd.set_option('display.width', 400)
@@ -14,67 +13,105 @@ from matplotlib import pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage
 
 
-
-# lemmatizer = nlp.get_pipe("lemmatizer")
-
-# Reading in Twitter Dataset
-Twitter = pd.read_csv("/Users/hh/Google Drive (hamadsothman@gmail.com)/DATA SCIENCE/DISO/sample.csv", nrows=50)
-#Reading in Airline Dataset
-AirlineData = pd.read_csv("/Users/hh/Google Drive (hamadsothman@gmail.com)/DATA SCIENCE/DISO/AirlineData.csv",nrows =50)
 #Reading in Council Dataset
 CouncilData = pd.read_csv("/Users/hh/Google Drive (hamadsothman@gmail.com)/DATA SCIENCE/DISO/Training Data/Training_Data_April.csv", nrows = 50)
 
+pattern = re.compile(r"\d*([^\d\W]+)\d*")
 
-#Tokenizing each row in Twitter file
-# TwitterText = Twitter["text"].apply(nlp)
-# AirlineText = AirlineData["Text"].apply(nlp)
-#
+#Making sure each word is lower case and striping white space
+CouncilData["Description"] = CouncilData["Description"].str.lower().str.strip()
+for word in CouncilData["Description"]:
+    pattern.sub(r"\1", word)
 
-# Finding a verb with a subject from below — good
-#Dependency Parsing and finding vector
-TwitterPairs = []
-AirlinePairs = []
+
+#Creating empty list for training pairs
 TrainingPairs = []
-
 
 def Pair_Extraction(Text, List):
  for doc in Text.apply(nlp):
          for possible_subject in doc:
-             #Removing stop words within the pipeline
-            if possible_subject.is_stop == False and possible_subject.is_digit == False:
-                #Finding pairs of words with head verb and its child
+             #Removing stop words, digits and punctuations within the pipeline
+            if possible_subject.is_stop == False and possible_subject.is_digit == False and possible_subject.is_punct == False:
+                #Finding pairs of words with head verb and its child object
                 if possible_subject.dep == dobj and possible_subject.head.pos_ == "VERB":
                     List.append([doc.text,possible_subject.text, possible_subject.head.text + " " + possible_subject.text,
                                 doc.vector, possible_subject.head.vector, possible_subject.head.vector * possible_subject.vector])
 
-# Pair_Extraction(Twitter["text"], TwitterPairs)
-# Pair_Extraction(AirlineData["Text"], AirlinePairs)
+#Running the Pair extraction method
 Pair_Extraction(CouncilData["Description"], TrainingPairs)
-# Creating Dataframe for three outputs of sentence pairs and vectors
-# TwitterDF = pd.DataFrame(TwitterPairs, columns=("Sentence", "Pair", "Vector"))
-# AirlineDF = pd.DataFrame(AirlinePairs, columns=("Sentence", "Pair", "Vector"))
+
+
+# # Creating Dataframe for three outputs of sentence pairs and vectors
 CouncilDF = pd.DataFrame(TrainingPairs, columns=("Sentence", "Subject", "Pair", "Sentence_Vector",
                                                  "Subject_Vector", "Pair_Vector"))
                          # dtype={"Sentence": str, "Subject": str,
                          #                     "Pair": str, "Vector_Pair": float,
                          #                     "Subject_Vector": float})
+
+#Making sure the types are str
 CouncilDF.Sentence.astype(str)
 CouncilDF.Subject.astype(str)
 CouncilDF.Pair.astype(str)
-# # CouncilDF[["Vector_Pair", "Subject_Vector"]] = CouncilDF[["Vector_Pair", "Subject_Vector"]].apply(pd.to_numeric)
 
 
-#Create model framework
+##Create model framework
+
+#TSNE model with dimentionality reduction to two components
 Tsne_model = TSNE(n_components = 2)
 
-# Subject_Vector = []
-#Creating Subject Vector Array for input to TSNE
-Subject_Vector = np.array([vector for vector in CouncilDF["Subject_Vector"]])
 
+# #Creating Subject Vector Array for input to TSNE
+Subject_Vector = np.array([vector for vector in CouncilDF["Subject_Vector"]])
+#Doing same process for labels of subjects
 Subject_Label = np.array([vector for vector in CouncilDF["Subject"]])
 
 
-#Running TSNE model on the Subject_Vector array
+# Creating Pair Vector and Pair NP arrays
+Pair_Vector = np.array([vector for vector in CouncilDF["Pair_Vector"]])
+
+Pair_label = np.array([vector for vector in CouncilDF["Pair"]])
+
+#Using TSNE and fitting and transforming the subject vectors
+new_values = Tsne_model.fit_transform(Subject_Vector)
+
+#Hierachical Clustering of subject
+l = linkage(Subject_Vector, method = "complete", metric = "seuclidean")
+plt.figure(figsize=(10,10))
+plt.title("Clustering")
+plt.ylabel("word")
+plt.xlabel("distance")
+
+dendrogram(
+    l,
+    leaf_rotation=0.,
+    leaf_font_size=7.,
+    orientation="left",
+    leaf_label_func=lambda v: str(Subject_Label[v])
+)
+plt.show()
+
+
+#Hierachical Clustering of pairs
+l = linkage(Pair_Vector, method = "complete", metric = "seuclidean")
+plt.figure(figsize=(10,10))
+plt.title("Clustering")
+plt.ylabel("word")
+plt.xlabel("distance")
+
+dendrogram(
+    l,
+    leaf_rotation=0.,
+    leaf_font_size=7.,
+    orientation="left",
+    leaf_label_func=lambda v: str(Pair_label[v])
+)
+plt.show()
+
+#Saving the Council DF
+CouncilDF.to_csv(r'/Users/hh/Google Drive (hamadsothman@gmail.com)/DATA SCIENCE/DISO/Council_Test_DF.csv', header = True)
+
+#Required if above method doesn't work
+# #Running TSNE model on the Subject_Vector array
 # new_values = Tsne_model.fit_transform(Subject_Vector)
 # Subject_VecX = []
 # Subject_VecY = []
@@ -84,57 +121,7 @@ Subject_Label = np.array([vector for vector in CouncilDF["Subject"]])
 #     Subject_VecY.append(value[1])
 #
 # plt.figure(figsize = (141,141))
-# for i in range(len(Subject_VecX)):
-#     plt.scatter(Subject_VecX[i], Subject_VecY[i])
-#     plt.annotate(Subject_Label[i],
-#                     xy = (Subject_VecX[i], Subject_VecY[i]),
-#                     xytest = (5,2),
-#                     textcoords = "offset points",
-#                     ha = "right",
-#                     va = "bottom")
-# plt.show()
-
-
-
-print(CouncilDF.dtypes)
-
-print(CouncilDF)
-
-
-
-# def cleaner(df):
-#     "Extract relevant text from DataFrame using a regex"
-#     # Regex pattern for only alphanumeric, hyphenated text with 3 or more chars
-#     pattern = re.compile(r"[A-Za-z0-9\-]{3,50}")
-#     df['clean'] = df['Text'].str.findall(pattern).str.join(' ')
-#     if limit > 0:
-#         return df.iloc[:limit, :].copy()
-#     else:
-#         return df
-# cleaner(AirlineData["Text"])
-# print(AirlineData.head())
 #
-# def lemmatize_pipe(doc):
-#     lemma_list = [str(tok.lemma_).lower() for tok in doc
-#                   if tok.is_alpha and tok.text.lower() not in stopwords]
-#     return lemma_list
-#
-# def preprocess_pipe(texts):
-#     preproc_pipe = []
-#     for doc in nlp.pipe(texts, batch_size=20):
-#         preproc_pipe.append(lemmatize_pipe(doc))
-#     return preproc_pipe
-# # for token in AirlineTokenize:
-# #     print(token, token.pos_)
 
-# You want list of Verb tokens
-# print("Verbs:", [token.text for token in AirlineTokenize if token.pos_ == "VERB"])
 
-# NLPAirline = nlp(AirlineTokenize["Text"])
-# print(NLPAirline.head())
-#
-# # AirlinePos = AirlineTokenize.apply(lambda x: print(x.pos_))
 
-# for token in AirlineTokenize:
-#     # Print the text and the predicted part-of-speech tag
-#     print(token.text, token.pos_)
